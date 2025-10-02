@@ -113,7 +113,7 @@ def main():
         config_files.append(config_file)
         # print(f"Processed {video} -> {config_file}")
 
-    with open(f"config_summary_{args.dataset}.log", "w") as f:
+    with open(f"configs_{args.dataset}.txt", "w") as f:
         for config_file in config_files:
             f.write(config_file + "\n")
 
