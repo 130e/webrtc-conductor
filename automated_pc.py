@@ -6,6 +6,7 @@ from time import sleep
 from typing import List
 import json
 import glob
+import csv
 
 
 def run_process(
@@ -65,6 +66,8 @@ def main() -> int:
     parser.add_argument("--mode", "-m", type=str, required=True)
     parser.add_argument("--display", "-d", type=str, default="1")
     args = parser.parse_args()
+
+    output_summary = []
 
     with open(args.configs, "r") as f:
         config_files = f.readlines()
@@ -140,7 +143,32 @@ def main() -> int:
                         source_file = ivf_files[0]
                         os.rename(source_file, output_video)
                         print(f"Renamed {source_file} to {output_video}")
+                        output_summary.append({
+                            "frame_dump": output_video,
+                            "rtc_log": stderr_file,
+                            "test_duration_ms": config["DurationMS"],
+                            "original_video_width": config["Width"],
+                            "original_video_height": config["Height"],
+                            "original_video_fps": config["Fps"],
+                            "original_video_duration_ms": config["OriginalDurationMS"],
+                        })
                         break
+        
+        print(f"\n=== Automated test complete ===")
+
+        if args.mode == "send":
+            print(f"Sent over {idx + 1} videos")
+        elif args.mode == "dump":
+            output_summary_csv = args.configs.replace(".txt", ".rtc.csv")
+            with open(output_summary_csv, "w") as f:
+                writer = csv.DictWriter(f, fieldnames=output_summary[0].keys())
+                writer.writeheader()
+                for row in output_summary:
+                    writer.writerow(row)
+                print(f"Received {len(output_summary)} videos, summary written to {output_summary_csv}")
+        
+        print(f"\n=== Exiting ===")
+        return 0
 
 
 if __name__ == "__main__":
