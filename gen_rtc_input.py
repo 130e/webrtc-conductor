@@ -19,6 +19,7 @@ def find_files(dir: str, suffix: str) -> List[str]:
 
 
 def process_video(video_path: str, output_path: str, overwrite: bool = False):
+    output_path = os.path.normpath(output_path)
     # Convert video
     if not overwrite and os.path.exists(output_path):
         # print(f"Skipping {output_path} because it already exists")
@@ -92,7 +93,7 @@ def main():
     parser.add_argument("--suffix", type=str, default=".mp4")
     args = parser.parse_args()
 
-    output_base_dir = "./data/rtc_input"
+    output_base_dir = "data/rtc_input"
 
     # Process all files in the input directory
     video_files = find_files(args.input, args.suffix)

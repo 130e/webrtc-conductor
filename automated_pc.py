@@ -3,6 +3,7 @@ import argparse
 import os
 import subprocess
 from time import sleep
+from datetime import datetime
 from typing import List
 import json
 import glob
@@ -18,7 +19,6 @@ def run_process(
     print(f"=== Environment: {env_vars} ===")
     if stderr_file:
         print(f"=== Stderr will be written to: {stderr_file} ===")
-    # return 1
 
     # Prepare environment
     env = os.environ.copy()
@@ -73,6 +73,7 @@ def main() -> int:
         config_files = f.readlines()
 
         env_vars = {"DISPLAY": f":{args.display}"}
+
         for idx, config_file in enumerate(config_files):
             config_file = config_file.strip()
 
@@ -109,7 +110,9 @@ def main() -> int:
                     f"--force_fieldtrials=WebRTC-DecoderDataDumpDirectory/{masked_output_dir}/",
                 ]
 
+            print(f"\n=== Test {idx+1}/{len(config_files)}: {datetime.now()} ==")
             return_code = run_process(cmd_tokens, env_vars, stderr_file)
+
             if return_code != 0:
                 print(f"Process exited with code {return_code}")
                 break
@@ -143,17 +146,21 @@ def main() -> int:
                         source_file = ivf_files[0]
                         os.rename(source_file, output_video)
                         print(f"Renamed {source_file} to {output_video}")
-                        output_summary.append({
-                            "frame_dump": output_video,
-                            "rtc_log": stderr_file,
-                            "test_duration_ms": config["DurationMS"],
-                            "original_video_width": config["Width"],
-                            "original_video_height": config["Height"],
-                            "original_video_fps": config["Fps"],
-                            "original_video_duration_ms": config["OriginalDurationMS"],
-                        })
+                        output_summary.append(
+                            {
+                                "frame_dump": output_video,
+                                "rtc_log": stderr_file,
+                                "test_duration_ms": config["DurationMS"],
+                                "original_video_width": config["Width"],
+                                "original_video_height": config["Height"],
+                                "original_video_fps": config["Fps"],
+                                "original_video_duration_ms": config[
+                                    "OriginalDurationMS"
+                                ],
+                            }
+                        )
                         break
-        
+
         print(f"\n=== Automated test complete ===")
 
         if args.mode == "send":
@@ -165,8 +172,10 @@ def main() -> int:
                 writer.writeheader()
                 for row in output_summary:
                     writer.writerow(row)
-                print(f"Received {len(output_summary)} videos, summary written to {output_summary_csv}")
-        
+                print(
+                    f"Received {len(output_summary)} videos, summary written to {output_summary_csv}"
+                )
+
         print(f"\n=== Exiting ===")
         return 0
 

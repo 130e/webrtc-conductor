@@ -59,7 +59,7 @@ def shuffle_files(files, seed=None):
     """Randomly shuffle the list of files."""
     if seed is not None:
         random.seed(seed)
-    
+
     shuffled_files = files.copy()
     random.shuffle(shuffled_files)
     return shuffled_files
@@ -69,7 +69,7 @@ def split_into_batches(files, batch_size):
     """Split files into batches of specified size."""
     batches = []
     for i in range(0, len(files), batch_size):
-        batch = files[i:i + batch_size]
+        batch = files[i : i + batch_size]
         batches.append(batch)
     return batches
 
@@ -80,7 +80,7 @@ def save_batches(batches, output_prefix, output_dir):
     try:
         # Create output directory if it doesn't exist
         Path(output_dir).mkdir(parents=True, exist_ok=True)
-        
+
         for i, batch in enumerate(batches):
             batch_file = Path(output_dir) / f"{output_prefix}{i+1:03d}.txt"
             with open(batch_file, "w") as f:
@@ -117,7 +117,9 @@ def print_batch_statistics(files, batches, categories):
                     category_counts.get("Celeb-synthesis", 0) + 1
                 )
             elif "/YouTube-real/" in file_path:
-                category_counts["YouTube-real"] = category_counts.get("YouTube-real", 0) + 1
+                category_counts["YouTube-real"] = (
+                    category_counts.get("YouTube-real", 0) + 1
+                )
 
     print(f"\nDistribution breakdown by category:")
     for category, count in sorted(category_counts.items()):
