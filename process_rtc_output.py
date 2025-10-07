@@ -127,7 +127,9 @@ def parse_rtc_log(log_file: str, frames: List[str], out_file: str):
     decoded_frames.sort(key=lambda x: x["ts"])
 
     if len(decoded_frames) != len(frames):
-        print(f"Error: rtc logs ({len(decoded_frames)}) and video frames ({len(frames)}) mismatch!")
+        print(
+            f"Error: rtc logs ({len(decoded_frames)}) and video frames ({len(frames)}) mismatch!"
+        )
         return 1
 
     with open(out_file, "w", newline="") as csvfile:
