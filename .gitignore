@@ -1,4 +1,7 @@
 data/
+temp/
 __pycache__/
-plots/
 *.log
+peerconnection_server
+peerconnection_client
+0_masterfile.md

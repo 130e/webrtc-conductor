@@ -1,0 +1,56 @@
+# WebRTC Conductor Experiment Configuration
+# This file contains shared configuration parameters for all experiment scripts
+
+# Generate RTC input
+source:
+  dir: "data/video_data/original"
+  dataset: "Celeb-DF-v1"
+  video_suffix: ".mp4"
+
+rtc_input:
+  dir: "data/rtc_input/original"
+  videos: "Celeb-DF-v1-videos.txt"
+  duration_extension_ms: 60000 # Extra duration to add to video (in milliseconds)
+  pixel_format: "yuv420p" # Output pixel format for video conversion
+  overwrite: false
+
+# Orchestration
+rtc_stream:
+  dir: "data/rtc_output/test_0" # usually you want a unique run id
+  videos: "Celeb-DF-v1-videos.txt"
+  remote_host: "wifi-peer" # SSH host, passwordless login
+  remote_base_dir: "/home/simmer/video-test/webrtc-conductor"
+  signal_server: "10.13.194.195"
+  signal_port: "8880"
+  local_display: 1
+  remote_display: 0
+  start_idx: 0 # start from this index of the videos list
+  delay: 6 # delay between each stream
+  delay_factor: 1.15 # delay factor for each retry
+  max_retry: 8 # max retry times for each video
+  collect_output: true # collect output automatically after each stream
+
+# Process RTC output
+process_rtc:
+  dir: "data/processed_rtc/test_0" # usually you want a unique run id
+  videos: "Celeb-DF-v1-videos.txt"
+
+# Detector
+detector:
+  dir: "data/detector_data/test_0" # usually you want a unique run id
+  videos: "Celeb-DF-v1-videos.txt"
+  # Absolute path for symlink, optional
+  preprocessing_dir: "/data/ztliu/deepfakes/DeepfakeBench/preprocessing/datasets/detector_data"
+  eval_dest_dir: "/data/ztliu/deepfakes/DeepfakeBench/datasets/detector_data"
+
+# Plot metrics
+figure:
+  dir: "data/plots/test_0" # usually you want a unique run id
+  videos: "Celeb-DF-v1-videos.txt"
+  detector_name: "recce" # Just for naming the figure directory
+  result: "detector_result_recce.json"
+  bitrate_thresholds:
+    - 200
+    - 400
+    - 500
+  plot_interval: 15

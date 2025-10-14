@@ -5,77 +5,31 @@ import csv
 from pathlib import Path
 from typing import List
 import re
+import code
+import json
+import yaml
 
 
-def convert_path(path_str: str, keyword: str, new_prefix: str) -> str:
-    path = Path(path_str)
-
-    parts = path.parts
-    try:
-        idx = parts.index(keyword)
-    except ValueError:
-        raise ValueError(f"'{keyword}' not found in path")
-
-    relative = Path(*parts[idx:])
-
-    return str(Path(new_prefix) / relative)
-
-
-def process_video(video: str, out_dir: str) -> List[str]:
-    out_files = []
+# Legacy function
+def parse_frames(video: str):
+    frame_info = []
     container = av.open(video)
-
-    for i, frame in enumerate(container.decode(video=0)):
-        # Get actual resolution of this frame
-        w, h = frame.width, frame.height
-
-        # Build output filename (frame index + resolution)
-        file_path = Path(video)
-        basename = file_path.name.removesuffix("".join(file_path.suffixes))
-        out_path = os.path.join(out_dir, f"{basename}_frames_{i:05d}_{w}x{h}.jpg")
-
-        # Save as JPEG
-        frame.to_image().save(out_path, format="JPEG")
-
-        out_files.append(out_path)
-
-    print(f"Done Extracted {i+1} frames to {out_dir}/")
-
-    return out_files
+    for frame in container.decode(video=0):
+        frame_info.append(
+            [
+                frame.time,
+                frame.pts,
+                frame.width,
+                frame.height,
+                frame.key_frame,
+                frame.pict_type,
+                frame.is_corrupt,
+            ]
+        )
+    return frame_info
 
 
-def read_csv_data(csv_file_path):
-    """Read and parse the RTC output CSV file."""
-    data = []
-
-    try:
-        with open(csv_file_path, "r", newline="", encoding="utf-8") as csvfile:
-            reader = csv.DictReader(csvfile)
-            for row in reader:
-                # Convert numeric fields to appropriate types
-                processed_row = {
-                    "frame_dump": row["frame_dump"],
-                    "rtc_log": row["rtc_log"],
-                    "test_duration_ms": int(row["test_duration_ms"]),
-                    "original_video_width": int(row["original_video_width"]),
-                    "original_video_height": int(row["original_video_height"]),
-                    "original_video_fps": int(row["original_video_fps"]),
-                    "original_video_duration_ms": int(
-                        row["original_video_duration_ms"]
-                    ),
-                }
-                data.append(processed_row)
-    except FileNotFoundError:
-        print(f"Error: CSV file '{csv_file_path}' not found.")
-        return None
-    except Exception as e:
-        print(f"Error reading CSV file: {e}")
-        return None
-
-    return data
-
-
-def parse_rtc_log(log_file: str, frames: List[str], out_file: str):
+def parse_rtc_log(log_file: str):
     assembled_pattern = re.compile(
         r"AssembledFrame: First=(\d+) Last=(\d+) EncodedBufsz=(\d+) NumPktExp=(\d+) NumPktRecv=(\d+) NumNack=(\d+) MaxNack=(\d+)"
     )
@@ -112,111 +66,374 @@ def parse_rtc_log(log_file: str, frames: List[str], out_file: str):
                 key = (int(first), int(last))
                 decoded_frames.append(
                     {
+                        "RelativeTime": int(ts) / 1e6,
                         "ts": int(ts),
                         "First": int(first),
                         "Last": int(last),
                         "qp": int(qp),
                         "w": int(w),
                         "h": int(h),
-                        "type": ftype,
-                        "Assembled": assembled_frames.get(key, None),  # join if exists
+                        "frameType": ftype,
+                        # Defer join; logs may be out-of-order
+                        "Assembled": None,
                     }
                 )
 
     # sort by timestamp
     decoded_frames.sort(key=lambda x: x["ts"])
 
-    if len(decoded_frames) != len(frames):
-        print(
-            f"Error: rtc logs ({len(decoded_frames)}) and video frames ({len(frames)}) mismatch!"
-        )
-        return 1
+    first_frame_time = decoded_frames[0]["RelativeTime"]
+    for frame in decoded_frames:
+        frame["Assembled"] = assembled_frames.get((frame["First"], frame["Last"]), None)
+        frame["RelativeTime"] = frame["RelativeTime"] - first_frame_time
 
-    with open(out_file, "w", newline="") as csvfile:
-        fieldnames = [
-            "ts",
-            "First",
-            "Last",
-            "qp",
-            "w",
-            "h",
-            "type",
-            "EncodedBufsz",
-            "NumPktExp",
-            "NumPktRecv",
-            "NumNack",
-            "MaxNack",
-            "File",
-        ]
-        writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
-        writer.writeheader()
-        for i, frame in enumerate(decoded_frames):
-            row = {
-                "ts": frame["ts"],
-                "First": frame["First"],
-                "Last": frame["Last"],
-                "qp": frame["qp"],
-                "w": frame["w"],
-                "h": frame["h"],
-                "type": frame["type"],
-                "EncodedBufsz": (
-                    frame["Assembled"]["EncodedBufsz"] if frame["Assembled"] else ""
-                ),
-                "NumPktExp": (
-                    frame["Assembled"]["NumPktExp"] if frame["Assembled"] else ""
-                ),
-                "NumPktRecv": (
-                    frame["Assembled"]["NumPktRecv"] if frame["Assembled"] else ""
-                ),
-                "NumNack": frame["Assembled"]["NumNack"] if frame["Assembled"] else "",
-                "MaxNack": frame["Assembled"]["MaxNack"] if frame["Assembled"] else "",
-                "File": frames[i],
-            }
-            writer.writerow(row)
-
-        print(
-            f"Parsed {log_file}. Assmembled: {len(assembled_frames)}, Decoded: {len(decoded_frames)}, Recorded Frames: {i+1}"
-        )
-        return 0
-
-
-def main():
-    parser = argparse.ArgumentParser(description="Process RTC output")
-    parser.add_argument(
-        "--input", "-i", type=str, required=True, help="Path to the RTC output CSV file"
+    print(
+        f"Parsed {log_file}. Assmembled: {len(assembled_frames)}, Decoded: {len(decoded_frames)}"
     )
-    parser.add_argument("--dataset", "-d", type=str, required=True, help="Dataset name")
-    args = parser.parse_args()
+    return decoded_frames, assembled_frames
 
-    # Read the CSV data
-    csv_data = read_csv_data(args.input)
 
-    if csv_data is None:
-        return 1
+def parse_frame_dump(video: str):
+    container = av.open(video)
+    if not container.streams.video:
+        return []
+    stream = container.streams.video[0]
 
-    print(f"Successfully read {len(csv_data)} records from CSV file")
-
-    output_base_dir = "./data/processed_rtc"
-
-    for row in csv_data:
-        print(f"Processing {row['frame_dump']}")
-
-        output_dir = convert_path(
-            os.path.dirname(row["frame_dump"]), args.dataset, output_base_dir
+    frames_info = []
+    first_time = None
+    dup_count = 0
+    for packet in container.demux(stream):
+        if packet.size == 0:
+            continue
+        frames = packet.decode()
+        if len(frames) != 1:
+            dup_count += 1
+            continue
+        t = float(packet.pts * stream.time_base)
+        if first_time is None:
+            first_time = t
+        frames_info.append(
+            {
+                "RelativeTime": float(t - first_time),
+                "time": float(t),
+                "pts": packet.pts,
+                "size": int(packet.size),
+                "width": frames[0].width,
+                "height": frames[0].height,
+                "key_frame": frames[0].key_frame,
+                "pict_type": frames[0].pict_type,
+                "is_corrupt": frames[0].is_corrupt,
+            }
         )
-        os.makedirs(output_dir, exist_ok=True)
-        frame_files = process_video(row["frame_dump"], output_dir)
-
-        output_csv = os.path.basename(row["rtc_log"]).replace(".rtc.log", ".csv")
-
-        ret = parse_rtc_log(
-            row["rtc_log"], frame_files, os.path.join(output_dir, output_csv)
+    if dup_count > 0:
+        print(
+            f"Warning: {dup_count} number of times multiple frames are decoded from the same packet"
         )
-        if ret != 0:
-            return 1
 
-    return 0
+    return frames_info
+
+
+def correlate_frames(frames_info, decoded_frames):
+    correlated_frames = []
+    unmatched_ivf = []
+    unmatched_log = []
+
+    def is_match(ivf_item, log_item):
+        if log_item is None:
+            return False
+        assembled = log_item.get("Assembled")
+        if assembled is None:
+            return False
+        return (
+            ivf_item["width"] == log_item["w"]
+            and ivf_item["height"] == log_item["h"]
+            and ivf_item["size"] == assembled.get("EncodedBufsz")
+        )
+
+    i, j = 0, 0
+    n, m = len(frames_info), len(decoded_frames)
+
+    # Two-pointer with one-frame resync lookahead
+    while i < n and j < m:
+        # Skip log frames with no assembled info
+        if decoded_frames[j].get("Assembled") is None:
+            unmatched_log.append(
+                {
+                    "log_index": j,
+                    "log": decoded_frames[j],
+                    "reason": "extra_log_no_assembled",
+                }
+            )
+            j += 1
+            continue
+
+        if is_match(frames_info[i], decoded_frames[j]):
+            correlated_frames.append(
+                {
+                    "ivf_index": i,
+                    "log_index": j,
+                    "ivf": frames_info[i],
+                    "log": decoded_frames[j],
+                    "sync_error": "None",
+                }
+            )
+            i += 1
+            j += 1
+            continue
+
+        # Need resync
+        sync_error = None
+        # Try resync by skipping one IVF frame if next two align
+        skip_ivf_realigns = (
+            i + 1 < n
+            and is_match(frames_info[i + 1], decoded_frames[j])
+            and (
+                i + 2 < n
+                and j + 1 < m
+                and is_match(frames_info[i + 2], decoded_frames[j + 1])
+            )
+        )
+        if skip_ivf_realigns:
+            sync_error = "extra_frame"
+            unmatched_ivf.append(
+                {"ivf_index": i, "ivf": frames_info[i], "reason": sync_error}
+            )
+            i += 1
+            correlated_frames.append(
+                {
+                    "ivf_index": i,
+                    "log_index": j,
+                    "ivf": frames_info[i],
+                    "log": {},
+                    "sync_error": sync_error,
+                }
+            )
+            continue
+
+        # Try resync by skipping one Log frame if next two align
+        # Don't add to correlated frames
+        skip_log_realigns = (
+            j + 1 < m
+            and is_match(frames_info[i], decoded_frames[j + 1])
+            and (
+                i + 1 < n
+                and j + 2 < m
+                and is_match(frames_info[i + 1], decoded_frames[j + 2])
+            )
+        )
+        if skip_log_realigns:
+            sync_error = "extra_log"
+            unmatched_log.append(
+                {"log_index": j, "log": decoded_frames[j], "reason": sync_error}
+            )
+            j += 1
+            continue
+
+        # If still no alignment, mark both sides as a paired size mismatch and advance both
+        sync_error = "mismatch"
+        unmatched_ivf.append(
+            {"ivf_index": i, "ivf": frames_info[i], "reason": sync_error}
+        )
+        unmatched_log.append(
+            {"log_index": j, "log": decoded_frames[j], "reason": sync_error}
+        )
+        i += 1
+        j += 1
+        correlated_frames.append(
+            {
+                "ivf_index": i,
+                "log_index": j,
+                "ivf": frames_info[i],
+                "log": decoded_frames[j],
+                "sync_error": sync_error,
+            }
+        )
+
+    # Any tails are unmatched
+    while i < n:
+        unmatched_ivf.append(
+            {"ivf_index": i, "ivf": frames_info[i], "reason": "extra_ivf_tail"}
+        )
+        i += 1
+        correlated_frames.append(
+            {
+                "ivf_index": i,
+                "log_index": j,
+                "ivf": frames_info[i],
+                "log": decoded_frames[j],
+                "sync_error": "extra_frame",
+            }
+        )
+    while j < m:
+        unmatched_log.append(
+            {"log_index": j, "log": decoded_frames[j], "reason": "extra_log_tail"}
+        )
+        j += 1
+
+    return {
+        "correlated_frames": correlated_frames,
+        "unmatched_ivf": unmatched_ivf,
+        "unmatched_log": unmatched_log,
+    }
 
 
 if __name__ == "__main__":
-    exit(main())
+    parser = argparse.ArgumentParser(description="Generate RTC input")
+    parser.add_argument(
+        "--config", "-c", type=str, required=True, help="Path to config file"
+    )
+    args = parser.parse_args()
+
+    # Load configuration
+    with open(args.config, "r") as f:
+        config = yaml.safe_load(f)
+
+    with open(config["process_list"], "r") as f:
+        video_lists = [line.strip() for line in f]
+
+    for video_id in video_lists:
+        print(f"Processing {video_id}")
+
+        rtc_log_path = os.path.join(
+            config["rtc_output_dir"],
+            config["dataset_name"],
+            video_id.replace(config["video_suffix"], ".rtc.log"),
+        )
+        os.makedirs(os.path.dirname(rtc_log_path), exist_ok=True)
+
+        ivf_path = os.path.join(
+            config["rtc_output_dir"],
+            config["dataset_name"],
+            video_id.replace(config["video_suffix"], ".ivf"),
+        )
+        os.makedirs(os.path.dirname(ivf_path), exist_ok=True)
+
+        log_decoded_frames, log_assembled_frames = parse_rtc_log(rtc_log_path)
+        frames_info = parse_frame_dump(ivf_path)
+        result = correlate_frames(frames_info, log_decoded_frames)
+
+        print("\nCorrelation summary:")
+        print(f"  IVF frames: {len(frames_info)}")
+        print(f"  Log decoded frames: {len(log_decoded_frames)}")
+        print(f"  Output frames: {len(result['correlated_frames'])}")
+
+        # Breakdown unmatched by reason
+        ivf_extra = sum(
+            1
+            for u in result["unmatched_ivf"]
+            if u.get("reason") in ("extra_frame", "extra_frame_tail")
+        )
+        ivf_mismatch = sum(
+            1 for u in result["unmatched_ivf"] if u.get("reason") == "mismatch"
+        )
+        log_extra = sum(
+            1
+            for u in result["unmatched_log"]
+            if u.get("reason")
+            in ("extra_log", "extra_log_tail", "extra_log_no_assembled")
+        )
+        log_mismatch = sum(
+            1 for u in result["unmatched_log"] if u.get("reason") == "mismatch"
+        )
+
+        print(
+            f"  Sync errors IVF frames: {len(result['unmatched_ivf'])} (extra={ivf_extra}, mismatch={ivf_mismatch})"
+        )
+        print(
+            f"  Sync errors Log frames: {len(result['unmatched_log'])} (extra={log_extra}, mismatch={log_mismatch})"
+        )
+
+        # Save the results to a csv file
+        output_csv = os.path.join(
+            config["processed_rtc_dir"],
+            config["dataset_name"],
+            video_id.replace(config["video_suffix"], ".csv"),
+        )
+
+        # Create output directory if it doesn't exist
+        os.makedirs(os.path.dirname(output_csv), exist_ok=True)
+
+        with open(output_csv, "w", newline="") as f:
+            writer = csv.writer(f)
+
+            # Write header
+            header = [
+                "frame_index",
+                "video_RelativeTime",
+                "video_time",
+                "video_pts",
+                "video_size",
+                "video_width",
+                "video_height",
+                "video_key_frame",
+                "video_pict_type",
+                "video_is_corrupt",
+                "sync_error",
+                "log_RelativeTime",
+                "log_ts",
+                "log_First",
+                "log_Last",
+                "log_qp",
+                "log_w",
+                "log_h",
+                "log_frameType",
+                "log_Assembled_First",
+                "log_Assembled_Last",
+                "log_Assembled_EncodedBufsz",
+                "log_Assembled_NumPktExp",
+                "log_Assembled_NumPktRecv",
+                "log_Assembled_NumNack",
+                "log_Assembled_MaxNack",
+            ]
+            writer.writerow(header)
+
+            # Write data rows
+            for idx, frame in enumerate(result["correlated_frames"]):
+                ivf = frame["ivf"]
+                log = frame["log"]
+
+                # Handle empty log case (extra IVF frames)
+                if not log:
+                    assembled = {}
+                    log_data = [None] * 8  # 8 log fields
+                else:
+                    assembled = log.get("Assembled", {})
+                    log_data = [
+                        log.get("RelativeTime"),
+                        log.get("ts"),
+                        log.get("First"),
+                        log.get("Last"),
+                        log.get("qp"),
+                        log.get("w"),
+                        log.get("h"),
+                        log.get("frameType"),
+                    ]
+
+                row = (
+                    [
+                        idx,
+                        ivf["RelativeTime"],
+                        ivf["time"],
+                        ivf["pts"],
+                        ivf["size"],
+                        ivf["width"],
+                        ivf["height"],
+                        ivf["key_frame"],
+                        ivf["pict_type"],
+                        ivf["is_corrupt"],
+                        frame["sync_error"],
+                    ]
+                    + log_data
+                    + [
+                        assembled.get("First"),
+                        assembled.get("Last"),
+                        assembled.get("EncodedBufsz"),
+                        assembled.get("NumPktExp"),
+                        assembled.get("NumPktRecv"),
+                        assembled.get("NumNack"),
+                        assembled.get("MaxNack"),
+                    ]
+                )
+                writer.writerow(row)
+
+        print(f"Saved correlated frames to: {output_csv}")
