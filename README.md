@@ -1,25 +1,37 @@
-# webrtc-conductor
+# webrtc-experiment-conductor
+
+```mermaid
+graph LR
+    Input_Video["`**Video**`"]
+
+    Input_Video -.Transcode.-> Yuv["Raw Frames"]
+
+    Yuv --> Orch("WebRTC Runner")
+    Orch -.1_Frames.-> Local_Client("WebRTC Client A")
+    
+    Local_Client <-.2_Stream.-> Remote_Client
+    Remote_Client -.3_Collect Result.-> Orch
+
+    Orch --> ivf["Encoded Frames"]
+    Orch --> log["RTC Packet Log"]
+    ivf -.Transcode.-> Output_Video["`**Received Video**`"]
+  
+    ivf --> Aggr{Aggregate}
+    log --> Aggr
+    Aggr --> Frame_info["`**Frame Info**`"]
+```
 
 Pile of scripts to automate DF video generation, P2P video streaming experiment, trace collections, and post-processing.
 
-- Orchestrate P2P WebRTC streaming test over two hosts using native clients
+- Orchestrate P2P WebRTC streaming experiment over two hosts
+- Customized WebRTC native client
 - Collect WebRTC packet logs and video dump
 - Parse and format results for analysis
 
+## Note
+
+**Code hidden during submission**
+
 ## Instructions
 
-The whole pipeline is controlled by a single yaml config file, for examples: `Celeb-DF-v1-config.yaml`.
-
-**NOTE**: Blind, hidden...
-
-### DF Generation
-
-Generate a set of videos for streaming.
-
-### Real-time Streaming Experiment
-
-Batch run WebRTC video streaming experiment between two hosts using native webrtc clients
-
-### Detector
-
-At this point, you have detector results for each video and frames, as well as overall acc, auc, etc.
+The whole pipeline is controlled by a single yaml config file, for example: `config.yaml`
